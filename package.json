@@ -1,0 +1,29 @@
+{
+  "name": "compute-typescript-manage-vm",
+  "version": "0.0.1",
+  "description": "This sample demonstrates how to manage your Azure virtual machines using a TypeScript client ",
+  "main": "index.ts",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Azure-Samples/compute-typescript-manage-vm.git"
+  },
+  "keywords": [
+    "compute",
+    "virtual",
+    "machine",
+    "typescript",
+    "azure",
+    "sample",
+    "node",
+    "browser"
+  ],
+  "author": "Microsoft",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Azure-Samples/compute-typescript-manage-vm/issues"
+  },
+  "homepage": "https://github.com/Azure-Samples/compute-typescript-manage-vm#readme"
+}
