@@ -25,5 +25,8 @@
   "bugs": {
     "url": "https://github.com/Azure-Samples/compute-typescript-manage-vm/issues"
   },
-  "homepage": "https://github.com/Azure-Samples/compute-typescript-manage-vm#readme"
+  "homepage": "https://github.com/Azure-Samples/compute-typescript-manage-vm#readme",
+  "dependencies": {
+    "@azure/arm-compute": "^10.0.0"
+  }
 }
