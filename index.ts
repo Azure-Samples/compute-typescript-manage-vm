@@ -41,10 +41,11 @@ async function listVirtualMachines(computeClient: ComputeManagementClient): Prom
 
 async function createVirtualNetwork(
   networkClient: NetworkManagementClient,
+  location: string,
   resourceGroupName: string,
   name: string,
   parameters: NetworkModels.VirtualNetwork = {
-    location: "eastus2",
+    location: location,
     addressSpace: {
       addressPrefixes: ["10.0.0.0/16"]
     },
@@ -65,10 +66,11 @@ async function createVirtualNetwork(
 
 async function createPublicIpAddress(
   networkClient: NetworkManagementClient,
+  location: string,
   resourceGroupName: string,
   name: string,
   parameters: NetworkModels.PublicIPAddress = {
-    location: "eastus2",
+    location: location,
     publicIPAllocationMethod: "Dynamic",
     dnsSettings: {
       domainNameLabel: name
@@ -84,12 +86,13 @@ async function createPublicIpAddress(
 
 async function createNetworkInterface(
   networkClient: NetworkManagementClient,
+  location: string,
   resourceGroupName: string,
   name: string,
   virtualNetwork: NetworkModels.VirtualNetwork,
   publicIp: NetworkModels.PublicIPAddress,
   parameters: NetworkModels.NetworkInterface = {
-    location: "eastus2",
+    location: location,
     ipConfigurations: [
       {
         name: name,
@@ -109,10 +112,11 @@ async function createNetworkInterface(
 
 async function createVirtualMachine(
   computeClient: ComputeManagementClient,
+  location: string,
   resourceGroupName: string,
   virtualMachineName: string,
   parameters: Models.VirtualMachine = {
-    location: "eastus2"
+    location: location
   }
 ): Promise<Models.VirtualMachine> {
   console.log(`Creating "${virtualMachineName}" virtual machine in ${resourceGroupName} resource group in ${computeClient.subscriptionId} subscription`);
@@ -150,6 +154,7 @@ function getNameSuffix(): string {
     const resourceGroupName = "samples";
 
     const nameSuffix = getNameSuffix();
+    const location = "eastus2";
     const virtualMachineName = "vm" + nameSuffix;
     const virtualNetworkName = "network" + nameSuffix;
     const publicIpName = "ip" + nameSuffix;
@@ -159,12 +164,12 @@ function getNameSuffix(): string {
 
     await listVirtualMachines(computeClient);
 
-    const virtualNetwork = await createVirtualNetwork(networkClient, resourceGroupName, virtualNetworkName);
-    const publicIp = await createPublicIpAddress(networkClient, resourceGroupName, publicIpName);
-    const networkInterface = await createNetworkInterface(networkClient, resourceGroupName, networkInterfaceName, virtualNetwork, publicIp);
+    const virtualNetwork = await createVirtualNetwork(networkClient, location, resourceGroupName, virtualNetworkName);
+    const publicIp = await createPublicIpAddress(networkClient, location, resourceGroupName, publicIpName);
+    const networkInterface = await createNetworkInterface(networkClient, location, resourceGroupName, networkInterfaceName, virtualNetwork, publicIp);
 
-    await createVirtualMachine(computeClient, resourceGroupName, virtualMachineName, {
-      location: "eastus2",
+    await createVirtualMachine(computeClient, location, resourceGroupName, virtualMachineName, {
+      location: location,
       hardwareProfile: {
         vmSize: "Basic_A0"
       },
