@@ -1,9 +1,7 @@
 import { interactiveLogin } from "@azure/ms-rest-nodeauth";
 import { ComputeManagementClient, ComputeManagementModels as Models } from "@azure/arm-compute";
-import { StorageManagementClient, StorageManagementModels as StorageModels } from "@azure/arm-storage";
 import { NetworkManagementClient, NetworkManagementModels as NetworkModels } from "@azure/arm-network";
-import { RestError, RestResponse, HttpResponse } from "@azure/ms-rest-js";
-import { LROPoller, createLROPollerFromInitialResponse } from "@azure/ms-rest-azure-js";
+import { RestError, RestResponse, RequestOptionsBase } from "@azure/ms-rest-js";
 
 function getSubscriptionId(): string {
   const subscriptionId: string | undefined = process.env["AZURE_SUBSCRIPTION_ID"];
@@ -19,15 +17,13 @@ function getSubscriptionId(): string {
 async function getAzureClients(
   subscriptionId: string
 ): Promise<{
-  compute: ComputeManagementClient;
-  storage: StorageManagementClient;
-  network: NetworkManagementClient;
+  computeClient: ComputeManagementClient;
+  networkClient: NetworkManagementClient;
 }> {
   const credentials = await interactiveLogin();
   return {
-    compute: new ComputeManagementClient(credentials, subscriptionId),
-    storage: new StorageManagementClient(credentials, subscriptionId),
-    network: new NetworkManagementClient(credentials, subscriptionId)
+    computeClient: new ComputeManagementClient(credentials, subscriptionId),
+    networkClient: new NetworkManagementClient(credentials, subscriptionId)
   };
 }
 
@@ -41,33 +37,6 @@ async function listVirtualMachines(computeClient: ComputeManagementClient): Prom
   });
 
   return virtualMachines;
-}
-
-async function createStorageAccount(
-  storageClient: StorageManagementClient,
-  resourceGroupName: string,
-  accountName: string,
-  parameters: StorageModels.StorageAccountCreateParameters = {
-    sku: {
-      name: "Standard_LRS"
-    },
-    kind: "StorageV2",
-    location: "eastus2"
-  }
-): Promise<StorageModels.StorageAccountsCreateResponse> {
-  console.log(`Creating "${accountName}" storage account in ${resourceGroupName} resource group in ${storageClient.subscriptionId} subscription`);
-  const storageAccount = await storageClient.storageAccounts.create(resourceGroupName, accountName, parameters);
-
-  console.log(`Storage account "${storageAccount.name} was created successfully`);
-  return storageAccount;
-}
-
-async function deleteStorageAccount(storageClient: StorageManagementClient, resourceGroupName: string, storageAccountName: string): Promise<RestResponse> {
-  console.log(`Deleting "${storageAccountName}" storage account in ${resourceGroupName} resource group in ${storageClient.subscriptionId} subscription`);
-  const restResponse = await storageClient.storageAccounts.deleteMethod(resourceGroupName, storageAccountName);
-
-  console.log(`Storage account "${storageAccountName} was removed successfully`);
-  return restResponse;
 }
 
 async function createVirtualNetwork(
@@ -92,14 +61,6 @@ async function createVirtualNetwork(
 
   console.log(`Virtual network "${virtualNetwork.name} was created successfully`);
   return virtualNetwork;
-}
-
-async function deleteVirtualNetwork(networkClient: NetworkManagementClient, resourceGroupName: string, name: string): Promise<RestResponse> {
-  console.log(`Deleting "${name}" virtual network in ${resourceGroupName} resource group in ${networkClient.subscriptionId} subscription`);
-  const restResponse = await networkClient.virtualNetworks.deleteMethod(resourceGroupName, name);
-
-  console.log(`Virtual network "${name} was deleted successfully`);
-  return restResponse;
 }
 
 async function createPublicIpAddress(
@@ -161,16 +122,14 @@ async function createVirtualMachine(
   return virtualMachine;
 }
 
-async function deleteVirtualMachine(
-  computeClient: ComputeManagementClient,
-  resourceGroupName: string,
-  virtualMachineName: string
-): Promise<RestResponse> {
-  console.log(`Deleting "${virtualMachineName}" virtual machine in ${resourceGroupName} resource group in ${computeClient.subscriptionId} subscription`);
-  const restResponse: RestResponse = await computeClient.virtualMachines.deleteMethod(resourceGroupName, virtualMachineName);
+type DeleteMethod = (resourceGroupName: string, resourceName: string, options?: RequestOptionsBase) => Promise<RestResponse>;
+type TDeletableResource = { deleteMethod: DeleteMethod };
+async function deleteResource(resourceGroupName: string, resourceName: string, resource: TDeletableResource) {
+  console.log(`Deleting "${resourceName}" resource in ${resourceGroupName} resource group`);
+  const response = resource.deleteMethod(resourceGroupName, resourceName);
 
-  console.log(`Virtual machine "${virtualMachineName}" deleted successfully.`);
-  return restResponse;
+  console.log(`Resource "${resourceName}" deleted successfully.`);
+  return response;
 }
 
 function getNameSuffix(): string {
@@ -180,12 +139,7 @@ function getNameSuffix(): string {
     return (padString + num).slice(-n);
   };
 
-  const nameSuffix = now.getFullYear()
-    + pad(2, now.getMonth())
-    + pad(2, now.getDate())
-    + pad(2, now.getHours())
-    + pad(2, now.getMinutes())
-    + pad(2, now.getSeconds());
+  const nameSuffix = pad(2, now.getMonth()) + pad(2, now.getDate()) + pad(2, now.getHours()) + pad(2, now.getMinutes()) + pad(2, now.getSeconds());
 
   return nameSuffix;
 }
@@ -196,22 +150,20 @@ function getNameSuffix(): string {
     const resourceGroupName = "samples";
 
     const nameSuffix = getNameSuffix();
-    const virtualMachineName = "MySampleVM";
-    const storageAccountName = "storage20190417151839"; // "storage" + nameSuffix; // Storage account name must be between 3 and 24 characters in length and use numbers and lower-case letters only
+    const virtualMachineName = "vm" + nameSuffix;
     const virtualNetworkName = "network" + nameSuffix;
     const publicIpName = "ip" + nameSuffix;
     const networkInterfaceName = "nic" + nameSuffix;
 
-    const azureClients = await getAzureClients(subscriptionId);
+    const { computeClient, networkClient } = await getAzureClients(subscriptionId);
 
-    await listVirtualMachines(azureClients.compute);
+    await listVirtualMachines(computeClient);
 
-    // const storageAccount = await createStorageAccount(azureClients.storage, resourceGroupName, storageAccountName);
-    const virtualNetwork = await createVirtualNetwork(azureClients.network, resourceGroupName, virtualNetworkName);
-    const publicIp = await createPublicIpAddress(azureClients.network, resourceGroupName, publicIpName);
-    const networkInterface = await createNetworkInterface(azureClients.network, resourceGroupName, networkInterfaceName, virtualNetwork, publicIp);
+    const virtualNetwork = await createVirtualNetwork(networkClient, resourceGroupName, virtualNetworkName);
+    const publicIp = await createPublicIpAddress(networkClient, resourceGroupName, publicIpName);
+    const networkInterface = await createNetworkInterface(networkClient, resourceGroupName, networkInterfaceName, virtualNetwork, publicIp);
 
-    await createVirtualMachine(azureClients.compute, resourceGroupName, virtualMachineName, {
+    await createVirtualMachine(computeClient, resourceGroupName, virtualMachineName, {
       location: "eastus2",
       hardwareProfile: {
         vmSize: "Basic_A0"
@@ -226,30 +178,30 @@ function getNameSuffix(): string {
       },
       storageProfile: {
         imageReference: {
-          sku: "2016-Datacenter",
-          publisher: "MicrosoftWindowsServer",
+          sku: "18.04-LTS",
+          publisher: "Canonical",
           version: "latest",
-          offer: "WindowsServer"
+          offer: "UbuntuServer"
         },
         osDisk: {
           caching: "ReadWrite",
           managedDisk: {
-            "storageAccountType": "Standard_LRS"
+            storageAccountType: "Standard_LRS"
           },
-          name: "myVMosdisk",
+          name: `disk${nameSuffix}`,
           createOption: "FromImage"
-}
+        }
       }
     });
 
-    await listVirtualMachines(azureClients.compute);
+    await listVirtualMachines(computeClient);
 
-    await deleteVirtualMachine(azureClients.compute, resourceGroupName, virtualMachineName)
-    // await deleteVirtualNetwork(azureClients.network, resourceGroupName, virtualNetworkName);
-    // await deleteStorageAccount(azureClients.storage, resourceGroupName, storageAccountName);
+    await deleteResource(resourceGroupName, virtualMachineName, computeClient.virtualMachines);
+    await deleteResource(resourceGroupName, networkInterfaceName, networkClient.networkInterfaces);
+    await deleteResource(resourceGroupName, publicIpName, networkClient.publicIPAddresses);
+    await deleteResource(resourceGroupName, virtualNetworkName, networkClient.virtualNetworks);
   } catch (error) {
     const restError: RestError = error;
     console.error(restError.message);
-    console.error(JSON.stringify(error, undefined, " "));
   }
 })();
