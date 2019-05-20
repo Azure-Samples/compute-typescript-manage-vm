@@ -1,11 +1,7 @@
 {
     "compilerOptions": {
-        "declaration": true,
-        "declarationMap": true,
         "module": "commonjs",
         "noImplicitAny": true,
-        "preserveConstEnums": true,
-        "removeComments": false,
         "sourceMap": true,
         "strict": true,
     },
