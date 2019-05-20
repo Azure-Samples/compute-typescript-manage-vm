@@ -20,6 +20,9 @@ async function getAzureClients(
   computeClient: ComputeManagementClient;
   networkClient: NetworkManagementClient;
 }> {
+  // See https://github.com/Azure/ms-rest-nodeauth#ms-rest-nodeauth- or
+  // https://github.com/Azure/ms-rest-browserauth#ms-rest-browserauth-
+  // to learn about alternative ways of logging into Azure.
   const credentials = await interactiveLogin();
   return {
     computeClient: new ComputeManagementClient(credentials, subscriptionId),
