@@ -1,10 +1,15 @@
-import { interactiveLogin } from "@azure/ms-rest-nodeauth";
-import { ComputeManagementClient, ComputeManagementModels as Models } from "@azure/arm-compute";
-import { NetworkManagementClient, NetworkManagementModels as NetworkModels } from "@azure/arm-network";
-import { RestError, RestResponse, RequestOptionsBase } from "@azure/ms-rest-js";
+import { ComputeManagementClient, VirtualMachine } from "@azure/arm-compute";
+import {
+  NetworkInterface,
+  NetworkManagementClient,
+  PublicIPAddress,
+  VirtualNetwork,
+} from "@azure/arm-network";
+import { DefaultAzureCredential } from "@azure/identity";
 
 function getSubscriptionId(): string {
-  const subscriptionId: string | undefined = process.env["AZURE_SUBSCRIPTION_ID"];
+  const subscriptionId: string | undefined =
+    process.env["AZURE_SUBSCRIPTION_ID"];
 
   if (!subscriptionId) {
     console.error("Please set Azure subscription environmental variable");
@@ -14,32 +19,35 @@ function getSubscriptionId(): string {
   return subscriptionId!;
 }
 
-async function getAzureClients(
-  subscriptionId: string
-): Promise<{
+async function getAzureClients(subscriptionId: string): Promise<{
   computeClient: ComputeManagementClient;
   networkClient: NetworkManagementClient;
 }> {
-  // See https://github.com/Azure/ms-rest-nodeauth#ms-rest-nodeauth- or
-  // https://github.com/Azure/ms-rest-browserauth#ms-rest-browserauth-
-  // to learn about alternative ways of logging into Azure.
-  const credentials = await interactiveLogin();
+  const credentials = new DefaultAzureCredential();
   return {
     computeClient: new ComputeManagementClient(credentials, subscriptionId),
-    networkClient: new NetworkManagementClient(credentials, subscriptionId)
+    networkClient: new NetworkManagementClient(credentials, subscriptionId),
   };
 }
 
-async function listVirtualMachines(computeClient: ComputeManagementClient): Promise<Models.VirtualMachinesListAllResponse> {
-  console.log(`Listing virtual machine in ${computeClient.subscriptionId} subscription`);
-  const virtualMachines: Models.VirtualMachinesListAllResponse = await computeClient.virtualMachines.listAll();
+async function listVirtualMachines(computeClient: ComputeManagementClient) {
+  console.log(
+    `Listing virtual machine in ${computeClient.subscriptionId} subscription`
+  );
+  const virtualMachines = await computeClient.virtualMachines.listAll();
+  const virtualMachinesArray = new Array();
+  let index = 0;
+  for await (let virtualMachine of virtualMachines) {
+    console.log(
+      `${index++}): ${virtualMachine.name}\t\t${virtualMachine.location}\t${
+        virtualMachine.provisioningState
+      }`
+    );
+    virtualMachinesArray.push(virtualMachine);
+  }
+  console.log(`Found ${index} virtual machines:`);
 
-  console.log(`Found ${virtualMachines.length} virtual machines:`);
-  virtualMachines.forEach((virtualMachine: Models.VirtualMachine, index: number) => {
-    console.log(`${index}): ${virtualMachine.name}\t\t${virtualMachine.location}\t${virtualMachine.provisioningState}`);
-  });
-
-  return virtualMachines;
+  return virtualMachinesArray;
 }
 
 async function createVirtualNetwork(
@@ -47,23 +55,35 @@ async function createVirtualNetwork(
   location: string,
   resourceGroupName: string,
   name: string,
-  parameters: NetworkModels.VirtualNetwork = {
+  parameters: VirtualNetwork = {
     location: location,
     addressSpace: {
-      addressPrefixes: ["10.0.0.0/16"]
+      addressPrefixes: ["10.0.0.0/16"],
     },
     subnets: [
       {
         name: `sub${name}`,
-        addressPrefix: "10.0.0.0/24"
-      }
-    ]
+        addressPrefix: "10.0.0.0/24",
+      },
+    ],
   }
-): Promise<NetworkModels.VirtualNetwork> {
-  console.log(`Creating "${name}" virtual network in ${resourceGroupName} resource group in ${networkClient.subscriptionId} subscription`);
-  const virtualNetwork = await networkClient.virtualNetworks.createOrUpdate(resourceGroupName, name, parameters);
+) {
+  console.log(
+    `Creating "${name}" virtual network in ${resourceGroupName} resource group in ${networkClient.subscriptionId} subscription`
+  );
+  await networkClient.virtualNetworks.beginCreateOrUpdateAndWait(
+    resourceGroupName,
+    name,
+    parameters
+  );
+  const virtualNetwork = await networkClient.virtualNetworks.get(
+    resourceGroupName,
+    name
+  );
 
-  console.log(`Virtual network "${virtualNetwork.name} was created successfully`);
+  console.log(
+    `Virtual network "${virtualNetwork.name}" was created successfully`
+  );
   return virtualNetwork;
 }
 
@@ -72,18 +92,29 @@ async function createPublicIpAddress(
   location: string,
   resourceGroupName: string,
   name: string,
-  parameters: NetworkModels.PublicIPAddress = {
+  parameters: PublicIPAddress = {
     location: location,
     publicIPAllocationMethod: "Dynamic",
     dnsSettings: {
-      domainNameLabel: name
-    }
+      domainNameLabel: name,
+    },
   }
-): Promise<NetworkModels.PublicIPAddress> {
-  console.log(`Creating "${name}" public IP address in ${resourceGroupName} resource group in ${networkClient.subscriptionId} subscription`);
-  const publicIPAddress = await networkClient.publicIPAddresses.createOrUpdate(resourceGroupName, name, parameters);
-
-  console.log(`Virtual network "${publicIPAddress.name} was created successfully`);
+) {
+  console.log(
+    `Creating "${name}" public IP address in ${resourceGroupName} resource group in ${networkClient.subscriptionId} subscription`
+  );
+  await networkClient.publicIPAddresses.beginCreateOrUpdateAndWait(
+    resourceGroupName,
+    name,
+    parameters
+  );
+  const publicIPAddress = await networkClient.publicIPAddresses.get(
+    resourceGroupName,
+    name
+  );
+  console.log(
+    `Virtual network "${publicIPAddress.name}" was created successfully`
+  );
   return publicIPAddress;
 }
 
@@ -92,24 +123,35 @@ async function createNetworkInterface(
   location: string,
   resourceGroupName: string,
   name: string,
-  virtualNetwork: NetworkModels.VirtualNetwork,
-  publicIp: NetworkModels.PublicIPAddress,
-  parameters: NetworkModels.NetworkInterface = {
+  virtualNetwork: VirtualNetwork,
+  publicIp: PublicIPAddress,
+  parameters: NetworkInterface = {
     location: location,
     ipConfigurations: [
       {
         name: name,
         privateIPAllocationMethod: "Dynamic",
         subnet: virtualNetwork.subnets![0],
-        publicIPAddress: publicIp
-      }
-    ]
+        publicIPAddress: publicIp,
+      },
+    ],
   }
-): Promise<NetworkModels.NetworkInterface> {
-  console.log(`Creating "${name}" network interface in ${resourceGroupName} resource group in ${networkClient.subscriptionId} subscription`);
-  const networkInterface = await networkClient.networkInterfaces.createOrUpdate(resourceGroupName, name, parameters);
-
-  console.log(`Virtual network "${networkInterface.name} was created successfully`);
+) {
+  console.log(
+    `Creating "${name}" network interface in ${resourceGroupName} resource group in ${networkClient.subscriptionId} subscription`
+  );
+  await networkClient.networkInterfaces.beginCreateOrUpdateAndWait(
+    resourceGroupName,
+    name,
+    parameters
+  );
+  const networkInterface = await networkClient.networkInterfaces.get(
+    resourceGroupName,
+    name
+  );
+  console.log(
+    `Virtual network "${networkInterface.name}" was created successfully`
+  );
   return networkInterface;
 }
 
@@ -118,25 +160,38 @@ async function createVirtualMachine(
   location: string,
   resourceGroupName: string,
   virtualMachineName: string,
-  parameters: Models.VirtualMachine = {
-    location: location
+  parameters: VirtualMachine = {
+    location: location,
   }
-): Promise<Models.VirtualMachine> {
-  console.log(`Creating "${virtualMachineName}" virtual machine in ${resourceGroupName} resource group in ${computeClient.subscriptionId} subscription`);
-  const virtualMachine: Models.VirtualMachine = await computeClient.virtualMachines.createOrUpdate(resourceGroupName, virtualMachineName, parameters);
-
-  console.log(`Created ${virtualMachine.name} (${virtualMachine.vmId}) virtual machine.`);
+) {
+  console.log(
+    `Creating "${virtualMachineName}" virtual machine in ${resourceGroupName} resource group in ${computeClient.subscriptionId} subscription`
+  );
+  await computeClient.virtualMachines.beginCreateOrUpdateAndWait(
+    resourceGroupName,
+    virtualMachineName,
+    parameters
+  );
+  const virtualMachine = await computeClient.virtualMachines.get(
+    resourceGroupName,
+    virtualMachineName
+  );
+  console.log(
+    `Created ${virtualMachine.name} (${virtualMachine.vmId}) virtual machine.`
+  );
   return virtualMachine;
 }
 
-type DeleteMethod = (resourceGroupName: string, resourceName: string, options?: RequestOptionsBase) => Promise<RestResponse>;
-type TDeletableResource = { deleteMethod: DeleteMethod };
-async function deleteResource(resourceGroupName: string, resourceName: string, resource: TDeletableResource) {
-  console.log(`Deleting "${resourceName}" resource in ${resourceGroupName} resource group`);
-  const response = resource.deleteMethod(resourceGroupName, resourceName);
-
+async function deleteResource(
+  resourceGroupName: string,
+  resourceName: string,
+  resource: any
+) {
+  console.log(
+    `Deleting "${resourceName}" resource in ${resourceGroupName} resource group`
+  );
+  await resource.beginDeleteAndWait(resourceGroupName, resourceName);
   console.log(`Resource "${resourceName}" deleted successfully.`);
-  return response;
 }
 
 function getNameSuffix(): string {
@@ -146,70 +201,115 @@ function getNameSuffix(): string {
     return (padString + num).slice(-n);
   };
 
-  const nameSuffix = pad(2, now.getMonth()) + pad(2, now.getDate()) + pad(2, now.getHours()) + pad(2, now.getMinutes()) + pad(2, now.getSeconds());
+  const nameSuffix =
+    pad(2, now.getMonth()) +
+    pad(2, now.getDate()) +
+    pad(2, now.getHours()) +
+    pad(2, now.getMinutes()) +
+    pad(2, now.getSeconds());
 
   return nameSuffix;
 }
 
-(async function() {
+(async function () {
   try {
     const subscriptionId: string = getSubscriptionId();
     const resourceGroupName = "samples";
 
     const nameSuffix = getNameSuffix();
-    const location = "eastus2";
+    const location = "eastus";
     const virtualMachineName = "vm" + nameSuffix;
     const virtualNetworkName = "network" + nameSuffix;
     const publicIpName = "ip" + nameSuffix;
     const networkInterfaceName = "nic" + nameSuffix;
 
-    const { computeClient, networkClient } = await getAzureClients(subscriptionId);
+    const { computeClient, networkClient } = await getAzureClients(
+      subscriptionId
+    );
 
     await listVirtualMachines(computeClient);
 
-    const virtualNetwork = await createVirtualNetwork(networkClient, location, resourceGroupName, virtualNetworkName);
-    const publicIp = await createPublicIpAddress(networkClient, location, resourceGroupName, publicIpName);
-    const networkInterface = await createNetworkInterface(networkClient, location, resourceGroupName, networkInterfaceName, virtualNetwork, publicIp);
+    const virtualNetwork = await createVirtualNetwork(
+      networkClient,
+      location,
+      resourceGroupName,
+      virtualNetworkName
+    );
+    const publicIp = await createPublicIpAddress(
+      networkClient,
+      location,
+      resourceGroupName,
+      publicIpName
+    );
+    const networkInterface = await createNetworkInterface(
+      networkClient,
+      location,
+      resourceGroupName,
+      networkInterfaceName,
+      virtualNetwork,
+      publicIp
+    );
 
-    await createVirtualMachine(computeClient, location, resourceGroupName, virtualMachineName, {
-      location: location,
-      hardwareProfile: {
-        vmSize: "Basic_A0"
-      },
-      osProfile: {
-        computerName: virtualMachineName,
-        adminUsername: "MyUsername",
-        adminPassword: "MyPa$$w0rd"
-      },
-      networkProfile: {
-        networkInterfaces: [{ primary: true, id: networkInterface.id }]
-      },
-      storageProfile: {
-        imageReference: {
-          sku: "18.04-LTS",
-          publisher: "Canonical",
-          version: "latest",
-          offer: "UbuntuServer"
+    await createVirtualMachine(
+      computeClient,
+      location,
+      resourceGroupName,
+      virtualMachineName,
+      {
+        location: location,
+        hardwareProfile: {
+          vmSize: "Standard_D2s_v3",
         },
-        osDisk: {
-          caching: "ReadWrite",
-          managedDisk: {
-            storageAccountType: "Standard_LRS"
+        osProfile: {
+          computerName: virtualMachineName,
+          adminUsername: "MyUsername",
+          adminPassword: "MyPa$$w0rd",
+        },
+        networkProfile: {
+          networkInterfaces: [{ primary: true, id: networkInterface.id }],
+        },
+        storageProfile: {
+          imageReference: {
+            sku: "20_04-lts-gen2",
+            publisher: "Canonical",
+            version: "latest",
+            offer: "0001-com-ubuntu-server-focal",
           },
-          name: `disk${nameSuffix}`,
-          createOption: "FromImage"
-        }
+          osDisk: {
+            caching: "ReadWrite",
+            managedDisk: {
+              storageAccountType: "Standard_LRS",
+            },
+            name: `disk${nameSuffix}`,
+            createOption: "FromImage",
+          },
+        },
       }
-    });
+    );
 
     await listVirtualMachines(computeClient);
 
-    await deleteResource(resourceGroupName, virtualMachineName, computeClient.virtualMachines);
-    await deleteResource(resourceGroupName, networkInterfaceName, networkClient.networkInterfaces);
-    await deleteResource(resourceGroupName, publicIpName, networkClient.publicIPAddresses);
-    await deleteResource(resourceGroupName, virtualNetworkName, networkClient.virtualNetworks);
-  } catch (error) {
-    const restError: RestError = error;
-    console.error(restError.message);
+    await deleteResource(
+      resourceGroupName,
+      virtualMachineName,
+      computeClient.virtualMachines
+    );
+    await deleteResource(
+      resourceGroupName,
+      networkInterfaceName,
+      networkClient.networkInterfaces
+    );
+    await deleteResource(
+      resourceGroupName,
+      publicIpName,
+      networkClient.publicIPAddresses
+    );
+    await deleteResource(
+      resourceGroupName,
+      virtualNetworkName,
+      networkClient.virtualNetworks
+    );
+  } catch (error: any) {
+    console.error(error.message);
   }
 })();
