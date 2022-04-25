@@ -5,7 +5,7 @@ import {
   PublicIPAddress,
   VirtualNetwork,
 } from "@azure/arm-network";
-import { DefaultAzureCredential } from "@azure/identity";
+import { InteractiveBrowserCredential } from "@azure/identity";
 
 function getSubscriptionId(): string {
   const subscriptionId: string | undefined =
@@ -23,7 +23,7 @@ async function getAzureClients(subscriptionId: string): Promise<{
   computeClient: ComputeManagementClient;
   networkClient: NetworkManagementClient;
 }> {
-  const credentials = new DefaultAzureCredential();
+  const credentials = new InteractiveBrowserCredential();
   return {
     computeClient: new ComputeManagementClient(credentials, subscriptionId),
     networkClient: new NetworkManagementClient(credentials, subscriptionId),
